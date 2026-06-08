@@ -1,0 +1,42 @@
+#include <xc.h>
+//=============================================================================
+// BITS DE CONFIGURACIÓN
+//=============================================================================
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+//=============================================================================
+// DEFINICIONES
+//=============================================================================
+#define _XTAL_FREQ 8000000
+//=============================================================================
+// PROGRAMA PRINCIPAL
+//=============================================================================
+void main(void)
+{
+    unsigned char led;
+    TRISD = 0x00;
+    PORTD = 0x00;
+
+    while(1)
+    {
+        // Ida: RD0 -> RD7
+        for(led = 0x01; led != 0; led <<= 1)
+        {
+            PORTD = led;
+            __delay_ms(500);
+        }
+
+        // Regreso: RD6 -> RD0
+        for(led = 0x40; led != 0; led >>= 1)
+        {
+            PORTD = led;
+            __delay_ms(500);
+        }
+    }
+}
