@@ -1,0 +1,140 @@
+#include <xc.h>
+
+//=============================================================================
+// BITS DE CONFIGURACIÓN
+//=============================================================================
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+//=============================================================================
+// TABLA PARA DISPLAY DE 7 SEGMENTOS CATODO COMÚN
+// RC0-RC6 = DECENAS
+// RD0-RD6 = UNIDADES
+//=============================================================================
+
+const unsigned char numeros[10] = {
+    0x3F, // 0
+    0x06, // 1
+    0x5B, // 2
+    0x4F, // 3
+    0x66, // 4
+    0x6D, // 5
+    0x7D, // 6
+    0x07, // 7
+    0x7F, // 8
+    0x6F  // 9
+};
+
+//=============================================================================
+// FUNCIÓN PARA MOSTRAR EL NÚMERO
+//=============================================================================
+
+void Mostrar(unsigned char valor)
+{
+    unsigned char unidades;
+    unsigned char decenas;
+
+    unidades = valor % 10;
+    decenas  = valor / 10;
+
+    PORTD = numeros[unidades];
+    PORTC = numeros[decenas];
+}
+
+//=============================================================================
+// PROGRAMA PRINCIPAL
+//=============================================================================
+
+void main(void)
+{
+    unsigned char contador = 0;
+    unsigned char paso = 1;
+
+    // Desactivar entradas analógicas
+    ANSEL = 0x00;
+    ANSELH = 0x00;
+
+    // Pull-ups internos en PORTB
+    OPTION_REGbits.nRBPU = 0;
+
+    // RB0 = sumar
+    // RB1 = restar
+    // RB2 = cambiar paso
+    TRISB = 0xFF;
+
+    // Displays
+    TRISC = 0x00;
+    TRISD = 0x00;
+
+    PORTB = 0x00;
+    PORTC = 0x00;
+    PORTD = 0x00;
+
+    Mostrar(contador);
+
+    while(1)
+    {
+        Mostrar(contador);
+
+        //=================================================
+        // SUMAR
+        //=================================================
+        if(!PORTBbits.RB0)
+        {
+            contador += paso;
+
+            if(contador > 99)
+            {
+                contador = contador - 100;
+            }
+
+            while(!PORTBbits.RB0);
+            __delay_ms(20);
+        }
+
+        //=================================================
+        // RESTAR
+        //=================================================
+        if(!PORTBbits.RB1)
+        {
+            if(contador >= paso)
+            {
+                contador -= paso;
+            }
+            else
+            {
+                contador = 99;
+            }
+
+            while(!PORTBbits.RB1);
+            __delay_ms(20);
+        }
+
+        //=================================================
+        // CAMBIAR PASO 1 <-> 2
+        //=================================================
+        if(!PORTBbits.RB2)
+        {
+            if(paso == 1)
+            {
+                paso = 2;
+            }
+            else
+            {
+                paso = 1;
+            }
+
+            while(!PORTBbits.RB2);
+            __delay_ms(20);
+        }
+    }
+}
