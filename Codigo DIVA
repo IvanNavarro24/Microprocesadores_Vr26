@@ -1,0 +1,96 @@
+#include <xc.h>
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+unsigned char letraD[8] = {
+    0x78,
+    0x64,
+    0x62,
+    0x62,
+    0x62,
+    0x64,
+    0x78,
+    0x00
+};
+
+unsigned char letraI[8] = {
+    0x7E,
+    0x18,
+    0x18,
+    0x18,
+    0x18,
+    0x18,
+    0x7E,
+    0x00
+};
+
+unsigned char letraV[8] = {
+    0x66,
+    0x66,
+    0x66,
+    0x66,
+    0x66,
+    0x3C,
+    0x18,
+    0x00
+};
+
+unsigned char letraA[8] = {
+    0x18,
+    0x3C,
+    0x66,
+    0x66,
+    0x7E,
+    0x66,
+    0x66,
+    0x00
+};
+
+// Invierte el orden de los bits (espejo horizontal)
+unsigned char invertirBits(unsigned char dato) {
+    dato = ((dato & 0xF0) >> 4) | ((dato & 0x0F) << 4);
+    dato = ((dato & 0xCC) >> 2) | ((dato & 0x33) << 2);
+    dato = ((dato & 0xAA) >> 1) | ((dato & 0x55) << 1);
+    return dato;
+}
+
+void mostrarPatron(unsigned char *patron, unsigned int rep) {
+    unsigned int r;
+    unsigned char i;
+
+    for (r = 0; r < rep; r++) {
+        for (i = 0; i < 8; i++) {
+
+            PORTB = (1 << i);                // Activar fila
+            PORTD = ~invertirBits(patron[i]); // Mostrar columnas
+
+            __delay_ms(5);
+        }
+    }
+}
+
+void main(void) {
+
+    TRISB = 0x00;   // Filas
+    TRISD = 0x00;   // Columnas
+
+    PORTB = 0x00;
+    PORTD = 0xFF;
+
+    while(1) {
+
+        mostrarPatron(letraD, 60);
+        mostrarPatron(letraI, 60);
+        mostrarPatron(letraV, 60);
+        mostrarPatron(letraA, 60);
+    }
+}
