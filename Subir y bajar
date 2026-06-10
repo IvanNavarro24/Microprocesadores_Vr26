@@ -1,0 +1,137 @@
+#include <xc.h>
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+unsigned char numeros[10] = {
+    0x3F, //0
+    0x06, //1
+    0x5B, //2
+    0x4F, //3
+    0x66, //4
+    0x6D, //5
+    0x7D, //6
+    0x07, //7
+    0x7F, //8
+    0x6F  //9
+};
+
+volatile unsigned char direccion = 1; // 1=sube, 0=baja
+volatile unsigned char cambio = 0;
+
+void mostrar(unsigned int valor)
+{
+    unsigned char miles;
+    unsigned char centenas;
+    unsigned char decenas;
+    unsigned char unidades;
+
+    miles = valor / 1000;
+    centenas = (valor / 100) % 10;
+    decenas = (valor / 10) % 10;
+    unidades = valor % 10;
+
+    // Display 1 = Unidades
+    PORTC = 0x01;
+    PORTD = numeros[unidades];
+    __delay_ms(1);
+
+    // Display 2 = Miles
+    PORTC = 0x02;
+    PORTD = numeros[miles];
+    __delay_ms(1);
+
+    // Display 3 = Centenas
+    PORTC = 0x04;
+    PORTD = numeros[centenas];
+    __delay_ms(1);
+
+    // Display 4 = Decenas
+    PORTC = 0x08;
+    PORTD = numeros[decenas];
+    __delay_ms(1);
+
+    PORTC = 0x00;
+}
+
+void __interrupt() ISR(void)
+{
+    if(INTF)
+    {
+        cambio = 1;
+        INTF = 0;
+    }
+}
+
+void main(void)
+{
+    ANSEL = 0x00;
+    ANSELH = 0x00;
+
+    TRISC = 0x00;
+    TRISD = 0x00;
+    TRISB0 = 1;
+
+    PORTC = 0x00;
+    PORTD = 0x00;
+
+    OPTION_REGbits.nRBPU = 0;
+
+    INTEDG = 0;
+    INTF = 0;
+    INTE = 1;
+    GIE = 1;
+
+    unsigned int contador = 0;
+    unsigned char i;
+
+    while(1)
+    {
+        if(cambio)
+        {
+            direccion = !direccion;
+            cambio = 0;
+
+            while(RB0 == 0)
+            {
+                mostrar(contador);
+            }
+
+            __delay_ms(20);
+        }
+
+        for(i = 0; i < 12; i++)
+        {
+            mostrar(contador);
+        }
+
+        if(direccion)
+        {
+            contador++;
+
+            if(contador > 9999)
+            {
+                contador = 0;
+            }
+        }
+        else
+        {
+            if(contador == 0)
+            {
+                contador = 9999;
+            }
+            else
+            {
+                contador--;
+            }
+        }
+    }
+}
