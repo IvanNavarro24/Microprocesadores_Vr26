@@ -1,0 +1,81 @@
+#include <xc.h>
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+#define LED PORTCbits.RC0
+
+unsigned char numeros[10] = {
+    0x3F,
+    0x06,
+    0x5B,
+    0x4F,
+    0x66,
+    0x6D,
+    0x7D,
+    0x07,
+    0x7F,
+    0x6F
+};
+
+void blink_led(void)
+{
+    for(int i=0; i<3; i++)
+    {
+        LED = 1;
+        __delay_ms(500);
+
+        LED = 0;
+        __delay_ms(500);
+    }
+}
+
+void __interrupt() ISR(void)
+{
+    if(INTF)
+    {
+        GIE = 0;
+
+        blink_led();
+
+        INTF = 0;
+        GIE = 1;
+    }
+}
+
+void main(void)
+{
+    ANSEL = 0;
+    ANSELH = 0;
+    OPTION_REG = OPTION_REG & 0b01111111;
+
+    TRISC = 0x00;   // LED salida
+    TRISD = 0x00;   // Display salida
+
+    PORTC = 0;
+    PORTD = 0;
+
+    INTF = 0;
+    INTEDG = 0;     // Flanco descendente
+    INTE = 1;
+    GIE = 1;
+
+    unsigned char count = 0;
+
+    while(1)
+    {
+        PORTD = numeros[count];
+
+        __delay_ms(500);
+
+        count = (count + 1) % 10;
+    }
+}
