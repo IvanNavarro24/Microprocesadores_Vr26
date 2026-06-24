@@ -1,0 +1,145 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <xc.h>
+#include "lcd.h"
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+void ADC_Init(void)
+{
+    ANSEL = 0x03;      // AN0 y AN1 analógicos
+    ANSELH = 0x00;
+
+    ADCON1 = 0x80;
+    ADCON0 = 0x01;
+}
+
+unsigned int ADC_Read(unsigned char channel)
+{
+    ADCON0 &= 0xC3;
+    ADCON0 |= (channel << 2);
+
+    __delay_us(20);
+
+    GO_nDONE = 1;
+    while(GO_nDONE);
+
+    return ((ADRESH << 8) + ADRESL);
+}
+
+void main(void)
+{
+    char buffer[17];
+
+    ADC_Init();
+
+    LCD lcd = {&PORTC,2,3,4,5,6,7};
+    LCD_Init(lcd);
+
+    // RB0 y RB1 como entradas
+    TRISBbits.TRISB0 = 1;
+    TRISBbits.TRISB1 = 1;
+
+    // Pull-ups internos
+    OPTION_REGbits.nRBPU = 0;
+    WPUBbits.WPUB0 = 1;
+    WPUBbits.WPUB1 = 1;
+
+    unsigned char modo = 0;     // 0=Voltaje,1=ADC,2=Porcentaje
+    unsigned char canal = 0;    // 0=AN0,1=AN1
+
+    unsigned char b0_ant = 1;
+    unsigned char b1_ant = 1;
+
+    while(1)
+    {
+        // Cambio de modo (RB0)
+        if(RB0 == 0 && b0_ant == 1)
+        {
+            __delay_ms(20);
+
+            if(RB0 == 0)
+            {
+                modo++;
+
+                if(modo > 2)
+                    modo = 0;
+
+                while(RB0 == 0);
+            }
+        }
+
+        b0_ant = RB0;
+
+        // Cambio de canal (RB1)
+        if(RB1 == 0 && b1_ant == 1)
+        {
+            __delay_ms(20);
+
+            if(RB1 == 0)
+            {
+                canal ^= 1;
+
+                while(RB1 == 0);
+            }
+        }
+
+        b1_ant = RB1;
+
+        unsigned int adc = ADC_Read(canal);
+
+        LCD_Clear();
+
+        // Línea 1
+        LCD_Set_Cursor(0,0);
+
+        if(canal == 0)
+            LCD_putrs("Entrada 1");
+        else
+            LCD_putrs("Entrada 2");
+
+        // Línea 2
+        LCD_Set_Cursor(1,0);
+
+        if(modo == 0)
+        {
+            unsigned long mv;
+            unsigned int ent;
+            unsigned int dec;
+
+            mv = ((unsigned long)adc * 5000) / 1023;
+
+            ent = mv / 1000;
+            dec = mv % 1000;
+
+            sprintf(buffer,"V=%u.%03u V",ent,dec);
+            LCD_putrs(buffer);
+        }
+        else if(modo == 1)
+        {
+            sprintf(buffer,"ADC=%u",adc);
+            LCD_putrs(buffer);
+        }
+        else
+        {
+            unsigned int porcentaje;
+
+            porcentaje = ((unsigned long)adc * 100) / 1023;
+
+            sprintf(buffer,"%%=%u",porcentaje);
+            LCD_putrs(buffer);
+        }
+
+        __delay_ms(100);
+    }
+}
