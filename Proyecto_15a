@@ -1,0 +1,57 @@
+#include <xc.h>
+
+#define _XTAL_FREQ 8000000
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+void UART_Init(void)
+{
+    TRISCbits.TRISC6 = 0;     // TX
+
+    SPBRG = 12;               // 9600 baud @ 8MHz
+    BRGH = 1;
+
+    SYNC = 0;
+    SPEN = 1;
+    TXEN = 1;
+}
+
+void UART_Write(char dato)
+{
+    while(!TXIF);
+    TXREG = dato;
+}
+
+void main(void)
+{
+    ANSEL = 0;
+    ANSELH = 0;
+
+    UART_Init();
+
+    TRISBbits.TRISB0 = 1;
+
+    OPTION_REGbits.nRBPU = 0;
+    WPUBbits.WPUB0 = 1;
+
+    while(1)
+    {
+        if(RB0 == 0)
+        {
+            UART_Write('1');
+        }
+        else
+        {
+            UART_Write('0');
+        }
+
+        __delay_ms(100);
+    }
+}
