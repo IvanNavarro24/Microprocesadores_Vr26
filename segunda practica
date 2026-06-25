@@ -1,0 +1,83 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <xc.h>
+#include "lcd.h"
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+volatile unsigned int tiempo = 0;
+volatile unsigned int contador = 0;
+char exec[10];
+char voltStr[16];
+
+void Timer0_Init() {
+    OPTION_REG = 0x7;
+    TMR0 = 178;
+    T0IE = 1;
+    GIE  = 1;
+}
+
+void __interrupt() ISR(void) {
+    if (T0IF) {
+        contador++;
+        if (contador > 100) {
+            tiempo++;
+            contador = 0;
+        }
+        TMR0 = 178;
+        T0IF = 0;
+    }
+}
+
+void main(void) {
+    Timer0_Init();
+
+    // Configurar ADC en AN0
+    TRISA  = 0xFF;
+    ANSEL  = 0x01;   // AN0 analógico
+    ADCON0 = 0x41;   // ADC ON, canal 0, Fosc/8
+    ADCON1 = 0x80;   // Vref = VDD, justificado a la derecha
+
+    LCD lcd = {&PORTC, 2, 3, 4, 5, 6, 7};
+    LCD_Init(lcd);
+    LCD_Clear();
+
+    // Etiquetas fijas
+    LCD_Set_Cursor(0, 0);
+    LCD_putrs("Volt:");
+
+    while (1) {
+        // --- Leer ADC ---
+        ADCON0bits.GO = 1;
+        while (ADCON0bits.GO);
+        unsigned int adcVal = (ADRESH << 8) | ADRESL;
+
+        // Convertir a voltaje sin flotantes (Vref=5V, 10bits)
+        // adcVal * 500 / 1023 => resultado en centésimas de volt
+        unsigned int mv      = (unsigned int)((unsigned long)adcVal * 500UL / 1023UL);
+        unsigned int entero  = mv / 100;
+        unsigned int decimal = mv % 100;
+
+        // --- Renglón 0: "Volt: x.xx V" (arriba izquierda) ---
+        LCD_Set_Cursor(0, 5);
+        sprintf(voltStr, " %u.%02uV", entero, decimal);
+        LCD_putrs(voltStr);
+
+        // --- Renglón 1: "00:00" (abajo derecha, columna 11 de 16) ---
+        sprintf(exec, "%02u:%02u", tiempo / 60, tiempo % 60);
+        LCD_Set_Cursor(1, 11);
+        LCD_putrs(exec);
+
+        __delay_ms(200);
+    }
+}
