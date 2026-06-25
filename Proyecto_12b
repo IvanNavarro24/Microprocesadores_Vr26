@@ -1,1 +1,193 @@
+#include <xc.h>
+#include <stdbool.h>
+#include "lcd.h"
+#include <stdio.h>
 
+#define _XTAL_FREQ 8000000
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+// ===== TECLADO =====
+unsigned char cuenta = 16;
+unsigned char tecla_anterior = 16;
+unsigned char fila;
+
+const char teclas[4][4] =
+{
+    {'1','2','3','/'},
+    {'4','5','6','x'},
+    {'7','8','9','+'},
+    {'*','0','#','-'}
+};
+
+// ===== CALCULADORA =====
+long num1 = 0;
+long num2 = 0;
+char operacion = 0;
+bool segundo_numero = false;
+
+// ===== TECLADO SCAN =====
+void Teclado(void)
+{
+    cuenta = 16;
+
+    PORTBbits.RB0 = 0; PORTBbits.RB1 = 1; PORTBbits.RB2 = 1; PORTBbits.RB3 = 1;
+    __delay_us(20);
+
+    if(!RB4){__delay_ms(20); if(!RB4){cuenta=0; return;}}
+    if(!RB5){__delay_ms(20); if(!RB5){cuenta=1; return;}}
+    if(!RB6){__delay_ms(20); if(!RB6){cuenta=2; return;}}
+    if(!RB7){__delay_ms(20); if(!RB7){cuenta=3; return;}}
+
+    PORTBbits.RB0 = 1; PORTBbits.RB1 = 0; PORTBbits.RB2 = 1; PORTBbits.RB3 = 1;
+    __delay_us(20);
+
+    if(!RB4){__delay_ms(20); if(!RB4){cuenta=4; return;}}
+    if(!RB5){__delay_ms(20); if(!RB5){cuenta=5; return;}}
+    if(!RB6){__delay_ms(20); if(!RB6){cuenta=6; return;}}
+    if(!RB7){__delay_ms(20); if(!RB7){cuenta=7; return;}}
+
+    PORTBbits.RB0 = 1; PORTBbits.RB1 = 1; PORTBbits.RB2 = 0; PORTBbits.RB3 = 1;
+    __delay_us(20);
+
+    if(!RB4){__delay_ms(20); if(!RB4){cuenta=8; return;}}
+    if(!RB5){__delay_ms(20); if(!RB5){cuenta=9; return;}}
+    if(!RB6){__delay_ms(20); if(!RB6){cuenta=10; return;}}
+    if(!RB7){__delay_ms(20); if(!RB7){cuenta=11; return;}}
+
+    PORTBbits.RB0 = 1; PORTBbits.RB1 = 1; PORTBbits.RB2 = 1; PORTBbits.RB3 = 0;
+    __delay_us(20);
+
+    if(!RB4){__delay_ms(20); if(!RB4){cuenta=12; return;}}
+    if(!RB5){__delay_ms(20); if(!RB5){cuenta=13; return;}}
+    if(!RB6){__delay_ms(20); if(!RB6){cuenta=14; return;}}
+    if(!RB7){__delay_ms(20); if(!RB7){cuenta=15; return;}}
+}
+
+// ===== RESET =====
+void reset_calc(void)
+{
+    num1 = 0;
+    num2 = 0;
+    operacion = 0;
+    segundo_numero = false;
+
+    LCD_Clear();
+    LCD_Set_Cursor(0,0);
+    LCD_puts("Calc:");
+}
+
+// ===== MAIN =====
+void main(void)
+{
+    ANSEL = 0;
+    ANSELH = 0;
+    CM1CON0 = 0;
+    CM2CON0 = 0;
+
+    TRISB = 0xF0;
+    OPTION_REGbits.nRBPU = 0;
+    PORTB = 0xFF;
+
+    LCD lcd = { &PORTC, 2,3,4,5,6,7 };
+    LCD_Init(lcd);
+
+    reset_calc();
+
+    while(1)
+    {
+        Teclado();
+
+        if(cuenta < 16 && cuenta != tecla_anterior)
+        {
+            tecla_anterior = cuenta;
+
+            char t = teclas[cuenta/4][cuenta%4];
+
+            // ===== NÚMEROS =====
+            if(t >= '0' && t <= '9')
+            {
+                LCD_putc(t);
+
+                if(!segundo_numero)
+                    num1 = num1 * 10 + (t - '0');
+                else
+                    num2 = num2 * 10 + (t - '0');
+            }
+
+            // ===== OPERACIONES =====
+            else if(t=='/' || t=='x' || t=='+' || t=='-')
+            {
+                segundo_numero = true;
+                operacion = t;
+                LCD_putc(t);
+            }
+
+            // ===== IGUAL =====
+            else if(t=='#')
+            {
+                float res = 0.0;
+
+                if(operacion == '/')
+                {
+                    if(num2 == 0)
+                    {
+                        LCD_Clear();
+                        LCD_Set_Cursor(0,0);
+                        LCD_puts("Error Div 0");
+                        __delay_ms(2000);
+                        reset_calc();
+                        continue;
+                    }
+
+                    res = (float)num1 / (float)num2;
+                }
+
+                if(operacion == 'x')
+                    res = (float)num1 * (float)num2;
+
+                if(operacion == '+')
+                    res = (float)num1 + (float)num2;
+
+                if(operacion == '-')
+                    res = (float)num1 - (float)num2;
+
+                LCD_Set_Cursor(1,0);
+                LCD_puts("= ");
+
+                char buffer[16];
+
+                // Si XC8 no soporta %.2f, usa este método:
+                int entero = (int)res;
+                int decimal = (int)((res >= 0 ? (res - entero) : (entero - res)) * 100);
+
+                sprintf(buffer, "%d.%02d", entero, decimal);
+
+                LCD_puts(buffer);
+
+                tecla_anterior = 16;
+            }
+
+            // ===== CLEAR =====
+            else if(t=='*')
+            {
+                reset_calc();
+            }
+        }
+
+        // Detectar liberación de tecla
+        if(RB4 && RB5 && RB6 && RB7)
+        {
+            tecla_anterior = 16;
+        }
+
+        __delay_ms(50);
+    }
+}
