@@ -1,0 +1,151 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <xc.h>
+#include "lcd.h"
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+void ADC_Init(void)
+{
+    ANSEL = 0x03;
+    ANSELH = 0x00;
+
+    ADCON0 = 0x01;
+    ADCON1 = 0x80;
+}
+
+unsigned int ADC_Read(unsigned char channel)
+{
+    ADCON0 &= 0b11000011;
+    ADCON0 |= (channel << 2);
+
+    __delay_us(20);
+
+    GO_nDONE = 1;
+    while(GO_nDONE);
+
+    return (((unsigned int)ADRESH << 8) | ADRESL);
+}
+
+void main(void)
+{
+    ADC_Init();
+
+    LCD lcd = {&PORTC,2,3,4,5,6,7};
+    LCD_Init(lcd);
+
+    TRISBbits.TRISB0 = 1;
+
+    OPTION_REGbits.nRBPU = 0;
+    WPUBbits.WPUB0 = 1;
+
+    // Gato normal
+    unsigned char gato[8] =
+    {
+        0b10001,
+        0b11011,
+        0b11111,
+        0b10101,
+        0b11111,
+        0b01110,
+        0b01010,
+        0b00000
+    };
+
+    // Gato animación
+    unsigned char gato2[8] =
+    {
+        0b10001,
+        0b11011,
+        0b11111,
+        0b10101,
+        0b11111,
+        0b11111,
+        0b00100,
+        0b00000
+    };
+
+    LCD_CreateChar(0, gato);
+    LCD_CreateChar(1, gato2);
+
+    unsigned char x = 7;
+    unsigned char y = 0;
+
+    unsigned char botonAnterior = 1;
+
+    LCD_Clear();
+
+    while(1)
+    {
+        unsigned int adcX = ADC_Read(0);
+        unsigned int adcY = ADC_Read(1);
+
+        // Movimiento vertical
+        if(adcY > 512)
+            y = 0;
+        else
+            y = 1;
+
+        // Movimiento horizontal
+        if(adcX > 600)
+        {
+            x++;
+
+            if(x > 15)
+                x = 0;
+
+            if(adcX > 950)
+                __delay_ms(40);
+            else if(adcX > 850)
+                __delay_ms(70);
+            else if(adcX > 750)
+                __delay_ms(100);
+            else
+                __delay_ms(150);
+        }
+        else if(adcX < 400)
+        {
+            if(x == 0)
+                x = 15;
+            else
+                x--;
+
+            if(adcX < 70)
+                __delay_ms(40);
+            else if(adcX < 170)
+                __delay_ms(70);
+            else if(adcX < 270)
+                __delay_ms(100);
+            else
+                __delay_ms(150);
+        }
+
+        LCD_Clear();
+        LCD_Set_Cursor(y,x);
+        LCD_putc(0);
+
+        // Animación con botón
+        if((RB0 == 0) && (botonAnterior == 1))
+        {
+            LCD_Set_Cursor(y,x);
+            LCD_putc(1);
+            __delay_ms(150);
+
+            LCD_Set_Cursor(y,x);
+            LCD_putc(0);
+            __delay_ms(150);
+        }
+
+        botonAnterior = RB0;
+    }
+}
