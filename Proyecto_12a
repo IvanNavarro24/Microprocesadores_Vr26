@@ -1,0 +1,133 @@
+#include <xc.h>
+#include <stdbool.h>
+#include "lcd.h"
+
+#define _XTAL_FREQ 8000000
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+unsigned char cuenta;
+unsigned char fila;
+unsigned char tecla_anterior = 16;
+
+// NUEVO MAPEO (orden tipo celular)
+const char teclas[4][4] =
+{
+    {'1','2','3','A'},
+    {'4','5','6','B'},
+    {'7','8','9','C'},
+    {'*','0','#','D'}
+};
+
+void Teclado(void)
+{
+    cuenta = 16;
+
+    // FILA 1
+    PORTBbits.RB0 = 0;
+    PORTBbits.RB1 = 1;
+    PORTBbits.RB2 = 1;
+    PORTBbits.RB3 = 1;
+
+    __delay_us(20);
+
+    if(!RB4){ __delay_ms(20); if(!RB4){cuenta=0; return;} }
+    if(!RB5){ __delay_ms(20); if(!RB5){cuenta=1; return;} }
+    if(!RB6){ __delay_ms(20); if(!RB6){cuenta=2; return;} }
+    if(!RB7){ __delay_ms(20); if(!RB7){cuenta=3; return;} }
+
+    // FILA 2
+    PORTBbits.RB0 = 1;
+    PORTBbits.RB1 = 0;
+    PORTBbits.RB2 = 1;
+    PORTBbits.RB3 = 1;
+
+    __delay_us(20);
+
+    if(!RB4){ __delay_ms(20); if(!RB4){cuenta=4; return;} }
+    if(!RB5){ __delay_ms(20); if(!RB5){cuenta=5; return;} }
+    if(!RB6){ __delay_ms(20); if(!RB6){cuenta=6; return;} }
+    if(!RB7){ __delay_ms(20); if(!RB7){cuenta=7; return;} }
+
+    // FILA 3
+    PORTBbits.RB0 = 1;
+    PORTBbits.RB1 = 1;
+    PORTBbits.RB2 = 0;
+    PORTBbits.RB3 = 1;
+
+    __delay_us(20);
+
+    if(!RB4){ __delay_ms(20); if(!RB4){cuenta=8; return;} }
+    if(!RB5){ __delay_ms(20); if(!RB5){cuenta=9; return;} }
+    if(!RB6){ __delay_ms(20); if(!RB6){cuenta=10; return;} }
+    if(!RB7){ __delay_ms(20); if(!RB7){cuenta=11; return;} }
+
+    // FILA 4
+    PORTBbits.RB0 = 1;
+    PORTBbits.RB1 = 1;
+    PORTBbits.RB2 = 1;
+    PORTBbits.RB3 = 0;
+
+    __delay_us(20);
+
+    if(!RB4){ __delay_ms(20); if(!RB4){cuenta=12; return;} }
+    if(!RB5){ __delay_ms(20); if(!RB5){cuenta=13; return;} }
+    if(!RB6){ __delay_ms(20); if(!RB6){cuenta=14; return;} }
+    if(!RB7){ __delay_ms(20); if(!RB7){cuenta=15; return;} }
+}
+
+void main(void)
+{
+    ANSEL = 0;
+    ANSELH = 0;
+    CM1CON0 = 0;
+    CM2CON0 = 0;
+
+    TRISB = 0xF0;
+
+    OPTION_REGbits.nRBPU = 0;
+
+    PORTB = 0xFF;
+
+    LCD lcd =
+    {
+        &PORTC,
+        2, 3, 4, 5, 6, 7
+    };
+
+    LCD_Init(lcd);
+
+    LCD_Clear();
+    LCD_Set_Cursor(0,0);
+    LCD_puts("Tecla:");
+
+    while(1)
+    {
+        Teclado();
+
+        if(cuenta < 16 && cuenta != tecla_anterior)
+        {
+            tecla_anterior = cuenta;
+
+            fila = cuenta / 4;
+
+            LCD_Set_Cursor(1,0);
+            LCD_putc(teclas[fila][cuenta % 4]);
+            LCD_putc(' ');
+        }
+
+        if(RB4 && RB5 && RB6 && RB7)
+        {
+            tecla_anterior = 16;
+        }
+
+        __delay_ms(50);
+    }
+}
