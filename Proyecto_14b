@@ -1,0 +1,130 @@
+#include <xc.h>
+#include <stdint.h>
+
+//================================================
+// CONFIGURACIÓN
+//================================================
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+#define SERVO PORTDbits.RD0
+
+//================================================
+// RETARDO TIMER1
+//================================================
+void delay_us_t1(unsigned int us)
+{
+    unsigned int ticks;
+    unsigned int preload;
+
+    ticks = us / 4;
+
+    if(ticks == 0)
+        ticks = 1;
+
+    preload = 65536 - ticks;
+
+    T1CON = 0x31;   // reloj interno, prescaler 1:8
+
+    TMR1H = preload >> 8;
+    TMR1L = preload & 0xFF;
+
+    TMR1IF = 0;
+    TMR1ON = 1;
+
+    while(!TMR1IF);
+
+    TMR1ON = 0;
+}
+
+//================================================
+// PULSO SERVO (20 ms)
+//================================================
+void servo_pulso(unsigned int ancho_us)
+{
+    SERVO = 1;
+    delay_us_t1(ancho_us);
+
+    SERVO = 0;
+    delay_us_t1(20000 - ancho_us);
+}
+
+//================================================
+// ANGULO -> PULSO (CORREGIDO PARA VIDA REAL)
+//================================================
+unsigned int angulo_a_us(unsigned char ang)
+{
+    // 🔥 ESTE ES EL CAMBIO IMPORTANTE
+    // 1000us = 0° | 2000us = 180°
+    return 2500 + ((unsigned long)ang * 2500UL) / 180UL;
+}
+
+//================================================
+// SERVO ESTABLE (repite pulsos)
+//================================================
+void servo_angulo(unsigned char ang)
+{
+    unsigned int pulso;
+    unsigned char i;
+
+    pulso = angulo_a_us(ang);
+
+    for(i = 0; i < 10; i++)
+    {
+        servo_pulso(pulso);
+    }
+}
+
+//================================================
+// ADC
+//================================================
+void ADC_Init(void)
+{
+    ANSEL = 0x01;     // RA0 analógico
+    ANSELH = 0x00;
+
+    ADCON1 = 0x80;    // justificado derecha
+    ADCON0 = 0x81;    // AN0 ON
+}
+
+unsigned int ADC_Leer(void)
+{
+    __delay_us(20);
+
+    GO_nDONE = 1;
+    while(GO_nDONE);
+
+    return ((unsigned int)ADRESH << 8) | ADRESL;
+}
+
+//================================================
+// MAIN
+//================================================
+void main(void)
+{
+    unsigned int lectura;
+    unsigned char angulo;
+
+    TRISA0 = 1;
+    TRISD0 = 0;
+    PORTD = 0;
+
+    ADC_Init();
+
+    while(1)
+    {
+        lectura = ADC_Leer();
+
+        angulo = (unsigned char)((lectura * 180UL) / 1023UL);
+
+        servo_angulo(angulo);
+    }
+}
