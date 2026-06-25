@@ -1,0 +1,80 @@
+#include <xc.h>
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+//===================== ADC =====================
+
+void ADC_Init(void)
+{
+    ANSEL = 0x01;      // Solo AN0 analógico
+    ANSELH = 0x00;
+
+    ADCON0 = 0x01;
+    ADCON1 = 0x80;
+}
+
+unsigned int ADC_Read(unsigned char canal)
+{
+    ADCON0 &= 0b11000011;
+    ADCON0 |= (canal << 2);
+
+    __delay_us(20);
+
+    GO_nDONE = 1;
+    while(GO_nDONE);
+
+    return (((unsigned int)ADRESH << 8) | ADRESL);
+}
+
+//===================== PWM CCP1 =====================
+
+void PWM1_Init(void)
+{
+    TRISCbits.TRISC2 = 0;     // RC2 = CCP1
+
+    PR2 = 124;                // PWM ≈ 4 kHz
+
+    CCP1CON = 0b00001100;     // Modo PWM
+
+    T2CON = 0b00000101;       // Prescaler 4
+}
+
+void PWM1_SetDuty(unsigned int duty)
+{
+    unsigned int pwm;
+
+    pwm = ((unsigned long)duty * 499UL) / 1023UL;
+
+    CCPR1L = pwm >> 2;
+
+    CCP1CONbits.DC1B1 = (pwm >> 1) & 1;
+    CCP1CONbits.DC1B0 = pwm & 1;
+}
+
+//===================== MAIN =====================
+
+void main(void)
+{
+    unsigned int velocidad;
+
+    ADC_Init();
+    PWM1_Init();
+
+    while(1)
+    {
+        // Leer potenciómetro AN0
+        velocidad = ADC_Read(0);
+
+        // Ajustar ciclo de trabajo PWM
+        PWM1_SetDuty(velocidad);
+    }
+}
