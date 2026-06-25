@@ -1,0 +1,111 @@
+#include <xc.h>
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+
+// ADC
+
+
+void ADC_Init(void)
+{
+    ANSEL = 0x03;      // AN0 y AN1 analógicos
+    ANSELH = 0x00;
+
+    ADCON0 = 0x01;
+    ADCON1 = 0x80;
+}
+
+unsigned int ADC_Read(unsigned char canal)
+{
+    ADCON0 &= 0b11000011;
+    ADCON0 |= (canal << 2);
+
+    __delay_us(20);
+
+    GO_nDONE = 1;
+    while(GO_nDONE);
+
+    return (((unsigned int)ADRESH << 8) | ADRESL);
+}
+
+
+// PWM HARDWARE CCP1
+
+
+void PWM1_Init(void)
+{
+    TRISCbits.TRISC2 = 0;     // CCP1 salida
+
+    PR2 = 124;                // Frecuencia PWM
+
+    CCP1CON = 0b00001100;     // PWM mode
+
+    T2CON = 0b00000101;       // Timer2 ON, prescaler 4
+}
+
+void PWM1_SetDuty(unsigned int duty)
+{
+    unsigned int pwm;
+
+    pwm = ((unsigned long)duty * 499UL) / 1023UL;
+
+    CCPR1L = (unsigned char)(pwm >> 2);
+
+    CCP1CONbits.DC1B1 = (pwm >> 1) & 1;
+    CCP1CONbits.DC1B0 = pwm & 1;
+}
+
+
+// MAIN
+
+
+void main(void)
+{
+    unsigned int adcHardware;
+    unsigned int adcSoftware;
+
+    unsigned char dutySoft;
+    unsigned char i;
+
+    ADC_Init();
+    PWM1_Init();
+
+    TRISBbits.TRISB2 = 0;     // LED PWM software
+
+    PORTBbits.RB2 = 0;
+
+    while(1)
+    {
+        // Potenciómetro AN0
+        adcHardware = ADC_Read(0);
+
+        // Potenciómetro AN1
+        adcSoftware = ADC_Read(1);
+
+        // PWM Hardware (RC2)
+        PWM1_SetDuty(adcHardware);
+
+        // Escalar ADC a 0-100%
+        dutySoft = (unsigned char)(((unsigned long)adcSoftware * 100UL) / 1023UL);
+
+        // PWM Software (RB2)
+        for(i = 0; i < 100; i++)
+        {
+            if(i < dutySoft)
+                PORTBbits.RB2 = 1;
+            else
+                PORTBbits.RB2 = 0;
+
+            __delay_us(50);
+        }
+    }
+}
