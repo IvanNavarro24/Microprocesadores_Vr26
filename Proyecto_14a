@@ -1,0 +1,140 @@
+#include <xc.h>
+#include <stdint.h>
+
+//================================================
+// CONFIGURACIÓN
+//================================================
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+#define _XTAL_FREQ 8000000
+
+#define SERVO PORTDbits.RD0
+
+//================================================
+// RETARDO CON TIMER1
+// Fosc = 8 MHz
+// Fosc/4 = 2 MHz
+// Prescaler = 1:8
+// Tick = 4 us
+//================================================
+
+void delay_us_t1(unsigned int us)
+{
+    unsigned int ticks;
+    unsigned int preload;
+
+    ticks = us / 4;
+
+    if(ticks == 0)
+        ticks = 1;
+
+    preload = 65536 - ticks;
+
+    T1CON = 0x30;      // Timer1, prescaler 1:8
+
+    TMR1H = preload >> 8;
+    TMR1L = preload & 0xFF;
+
+    TMR1IF = 0;
+    TMR1ON = 1;
+
+    while(!TMR1IF);
+
+    TMR1ON = 0;
+}
+
+//================================================
+// PULSO DE SERVO (20 ms)
+//================================================
+
+void servo_pulso(unsigned int ancho_us)
+{
+    SERVO = 1;
+    delay_us_t1(ancho_us);
+
+    SERVO = 0;
+    delay_us_t1(20000 - ancho_us);
+}
+
+//================================================
+// CONVERSIÓN ÁNGULO -> PULSO
+// 0° = 500 us
+// 180° = 2500 us
+//================================================
+
+unsigned int angulo_a_us(unsigned char ang)
+{
+    return 500 + ((unsigned long)ang * 2000UL) / 180;
+}
+
+//================================================
+// MOVER A UN ÁNGULO
+//================================================
+
+void servo_angulo(unsigned char ang)
+{
+    unsigned int pulso;
+
+    pulso = angulo_a_us(ang);
+
+    servo_pulso(pulso);
+    servo_pulso(pulso);
+}
+
+//================================================
+// BARRIDO
+//================================================
+
+void barrer(unsigned char inicio,
+            unsigned char fin)
+{
+    signed int ang;
+
+    if(inicio < fin)
+    {
+        for(ang = inicio; ang <= fin; ang += 3)
+        {
+            servo_angulo((unsigned char)ang);
+        }
+    }
+    else
+    {
+        for(ang = inicio; ang >= fin; ang -= 3)
+        {
+            servo_angulo((unsigned char)ang);
+
+            if(ang <= fin)
+                break;
+        }
+    }
+}
+
+//================================================
+// MAIN
+//================================================
+
+void main(void)
+{
+    ANSEL = 0x00;
+    ANSELH = 0x00;
+
+    TRISD = 0x00;
+    PORTD = 0x00;
+
+    while(1)
+    {
+        barrer(0,180);
+        __delay_ms(300);
+
+        barrer(180,0);
+        __delay_ms(300);
+    }
+}
