@@ -1,0 +1,254 @@
+#include <xc.h>
+#include <stdbool.h>
+#include "lcd.h"
+#include <stdio.h>
+
+#define _XTAL_FREQ 8000000
+
+#pragma config FOSC = HS
+#pragma config WDTE = OFF
+#pragma config PWRTE = OFF
+#pragma config BOREN = ON
+#pragma config LVP = OFF
+#pragma config CPD = OFF
+#pragma config WRT = OFF
+#pragma config CP = OFF
+
+// ===== TECLADO =====
+unsigned char cuenta = 16;
+unsigned char tecla_anterior = 16;
+
+const char teclas[4][4] =
+{
+    {'1','2','3','/'},
+    {'4','5','6','x'},
+    {'7','8','9','+'},
+    {'*','0','#','-'}
+};
+
+// ===== BOMBA =====
+unsigned int caudal_mlh = 0;   // mL/h ingresado por teclado
+
+#define VOLUMEN_TOTAL_ML  100  // volumen fijo de referencia
+
+// ====================================================================
+// ===== LED PWM (brillo proporcional al % del proceso) ===============
+// ====================================================================
+// El LED se controla con el modulo CCP2 -> salida por RC1.
+// (CCP1/RC2 NO se puede usar porque el LCD ocupa RC2..RC7).
+//
+// Frecuencia PWM con Fosc=8MHz, PR2=255, prescaler 1:
+//   Fpwm = 8e6 / (4 * 256 * 1) = 7812.5 Hz  (sin parpadeo visible)
+//
+// Resolucion de duty de 10 bits (0..1023).
+// ====================================================================
+
+void pwm_init(void)
+{
+    PR2    = 255;        // periodo PWM
+    CCP2CON = 0x0C;      // modo PWM (CCP2M3:CCP2M0 = 1100)
+    CCPR2L  = 0;         // duty inicial = 0  -> LED apagado
+    CCP2CON &= 0xCF;     // limpia DC2B1:DC2B0 (bits 5:4)
+
+    T2CON = 0x04;        // Timer2 ON, prescaler 1:1, postscaler 1:1
+    TRISCbits.TRISC1 = 0;// RC1 como salida (despues de configurar el modulo)
+}
+
+// pct: 0..100  ->  brillo del LED de 0% a 100%
+void set_led_pwm(unsigned char pct)
+{
+    if(pct > 100) pct = 100;
+
+    // duty de 10 bits proporcional al porcentaje (0% -> 0 ; 100% -> 1023)
+    // IMPORTANTE: la multiplicacion se hace en 32 bits (unsigned long) para
+    // evitar el desbordamiento de 16 bits. Con unsigned int, pct*1023 supera
+    // los 65535 a partir del 65% y el valor "daba la vuelta" reiniciando el LED.
+    unsigned int duty = (unsigned int)(((unsigned long)pct * 1023UL) / 100UL);
+
+    CCPR2L  = (unsigned char)(duty >> 2);            // 8 bits altos del duty
+    CCP2CON = (CCP2CON & 0xCF) | ((duty & 0x03) << 4); // 2 bits bajos -> DC2B1:DC2B0
+}
+
+// ===== TECLADO SCAN =====
+void Teclado(void)
+{
+    cuenta = 16;
+
+    PORTBbits.RB0 = 0; PORTBbits.RB1 = 1; PORTBbits.RB2 = 1; PORTBbits.RB3 = 1;
+    __delay_us(20);
+    if(!RB4){__delay_ms(20); if(!RB4){cuenta=0; return;}}
+    if(!RB5){__delay_ms(20); if(!RB5){cuenta=1; return;}}
+    if(!RB6){__delay_ms(20); if(!RB6){cuenta=2; return;}}
+    if(!RB7){__delay_ms(20); if(!RB7){cuenta=3; return;}}
+
+    PORTBbits.RB0 = 1; PORTBbits.RB1 = 0; PORTBbits.RB2 = 1; PORTBbits.RB3 = 1;
+    __delay_us(20);
+    if(!RB4){__delay_ms(20); if(!RB4){cuenta=4; return;}}
+    if(!RB5){__delay_ms(20); if(!RB5){cuenta=5; return;}}
+    if(!RB6){__delay_ms(20); if(!RB6){cuenta=6; return;}}
+    if(!RB7){__delay_ms(20); if(!RB7){cuenta=7; return;}}
+
+    PORTBbits.RB0 = 1; PORTBbits.RB1 = 1; PORTBbits.RB2 = 0; PORTBbits.RB3 = 1;
+    __delay_us(20);
+    if(!RB4){__delay_ms(20); if(!RB4){cuenta=8; return;}}
+    if(!RB5){__delay_ms(20); if(!RB5){cuenta=9; return;}}
+    if(!RB6){__delay_ms(20); if(!RB6){cuenta=10; return;}}
+    if(!RB7){__delay_ms(20); if(!RB7){cuenta=11; return;}}
+
+    PORTBbits.RB0 = 1; PORTBbits.RB1 = 1; PORTBbits.RB2 = 1; PORTBbits.RB3 = 0;
+    __delay_us(20);
+    if(!RB4){__delay_ms(20); if(!RB4){cuenta=12; return;}}
+    if(!RB5){__delay_ms(20); if(!RB5){cuenta=13; return;}}
+    if(!RB6){__delay_ms(20); if(!RB6){cuenta=14; return;}}
+    if(!RB7){__delay_ms(20); if(!RB7){cuenta=15; return;}}
+}
+
+// ===== RESET =====
+void reset_bomba(void)
+{
+    caudal_mlh = 0;
+    set_led_pwm(0);          // 0% -> LED apagado
+    LCD_Clear();
+    LCD_Set_Cursor(0, 0);
+    LCD_puts("Caudal mL/h:");
+}
+
+// ===== INFUSION =====
+/*
+ * Duración total real = VOLUMEN_TOTAL_ML / caudal_mlh  horas
+ * En ms = (VOLUMEN_TOTAL_ML * 3600000UL) / caudal_mlh
+ * Por cada 1% = total_ms / 100
+ *
+ * Para no usar __delay_ms con variable usamos un loop
+ * de delay fijo de 100 ms contando iteraciones.
+ */
+void iniciar_infusion(void)
+{
+    if(caudal_mlh == 0)
+    {
+        LCD_Clear();
+        LCD_Set_Cursor(0,0);
+        LCD_puts("Error: 0 mL/h");
+        set_led_pwm(0);      // asegura LED apagado en error
+        __delay_ms(2000);
+        reset_bomba();
+        return;
+    }
+
+    // Mostrar línea 1: Caudal
+    LCD_Clear();
+    LCD_Set_Cursor(0, 0);
+    char buf[16];
+    sprintf(buf, "Caudal:%u mL/h", caudal_mlh);
+    LCD_puts(buf);
+
+    // Tiempo por cada 1% en ms
+    // total_ms = (VOLUMEN_TOTAL_ML * 3600000UL) / caudal_mlh
+    // ms_por_pct = total_ms / 100
+    // Ahora (x100 más rápido ? demo visual):
+    unsigned long ms_por_pct = ((unsigned long)VOLUMEN_TOTAL_ML * 360UL) / caudal_mlh;
+    // (dividimos entre 100 dentro: 3600000/100 = 36000)
+
+    unsigned char pct;
+    for(pct = 1; pct <= 100; pct++)
+    {
+        // Brillo del LED proporcional al porcentaje actual
+        set_led_pwm(pct);
+
+        // Mostrar línea 2: Infundiendo XX%
+        LCD_Set_Cursor(1, 0);
+        sprintf(buf, "Infuse... %3u%%", pct);
+        LCD_puts(buf);
+
+        // Esperar ms_por_pct milisegundos usando loop de 100 ms
+        unsigned long iteraciones = ms_por_pct / 100;
+        if(iteraciones == 0) iteraciones = 1; // mínimo 100 ms por paso
+
+        unsigned long i;
+        for(i = 0; i < iteraciones; i++)
+        {
+            __delay_ms(100);
+
+            // Permitir cancelar con tecla *
+            Teclado();
+            if(cuenta < 16)
+            {
+                char tc = teclas[cuenta/4][cuenta%4];
+                if(tc == '*')
+                {
+                    reset_bomba();   // reset_bomba ya apaga el LED
+                    return;
+                }
+            }
+        }
+    }
+
+    // Proceso terminado (100% -> LED al brillo máximo)
+    set_led_pwm(100);
+    LCD_Clear();
+    LCD_Set_Cursor(0, 0);
+    LCD_puts("Proceso");
+    LCD_Set_Cursor(1, 0);
+    LCD_puts("Terminado!");
+    __delay_ms(3000);
+    reset_bomba();
+}
+
+// ===== MAIN =====
+void main(void)
+{
+    ANSEL  = 0;
+    ANSELH = 0;
+    CM1CON0 = 0;
+    CM2CON0 = 0;
+
+    TRISB = 0xF0;
+    OPTION_REGbits.nRBPU = 0;
+    PORTB = 0xFF;
+
+    LCD lcd = { &PORTC, 2,3,4,5,6,7 };
+    LCD_Init(lcd);
+
+    pwm_init();          // <-- inicializa PWM del LED (despues del LCD)
+
+    reset_bomba();
+
+    while(1)
+    {
+        Teclado();
+
+        if(cuenta < 16 && cuenta != tecla_anterior)
+        {
+            tecla_anterior = cuenta;
+            char t = teclas[cuenta/4][cuenta%4];
+
+            // Dígitos numéricos
+            if(t >= '0' && t <= '9')
+            {
+                caudal_mlh = caudal_mlh * 10 + (t - '0');
+                LCD_Set_Cursor(1, 0);
+                char buf[16];
+                sprintf(buf, "-> %u mL/h  ", caudal_mlh);
+                LCD_puts(buf);
+            }
+
+            // # ? iniciar infusión
+            else if(t == '#')
+            {
+                tecla_anterior = 16;
+                iniciar_infusion();
+            }
+
+            // * ? reset
+            else if(t == '*')
+            {
+                reset_bomba();
+            }
+        }
+
+        if(RB4 && RB5 && RB6 && RB7)
+            tecla_anterior = 16;
+
+        __delay_ms(50);
+    }
+}
