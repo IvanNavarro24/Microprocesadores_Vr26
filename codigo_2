@@ -1,7 +1,5 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
 #include <xc.h>
+#include <stdbool.h>
 #include "lcd.h"
 
 #pragma config FOSC = HS
@@ -15,130 +13,91 @@
 
 #define _XTAL_FREQ 8000000
 
-
-// ADC
-
-void ADC_Init()
+void LCD_CreateChar(unsigned char location, unsigned char charmap[])
 {
-    ANSEL = 0x01;      // RA0 analógico
-    ANSELH = 0x00;     // Resto digital
+    unsigned char i;
 
-    ADCON0 = 0x81;     // ADC ON, canal AN0
-    ADCON1 = 0x80;     // Justificado a la derecha
+    location &= 0x07;
+
+    LCD_Cmd(0x40 + (location * 8));
+
+    for(i = 0; i < 8; i++)
+    {
+        LCD_putc(charmap[i]);
+    }
 }
 
-unsigned int ADC_Read()
+// Carita feliz
+unsigned char feliz[8] =
 {
-    __delay_us(10);
+    0b00000,
+    0b01010,
+    0b01010,
+    0b00000,
+    0b10001,
+    0b01110,
+    0b00000,
+    0b00000
+};
 
-    GO_nDONE = 1;
-    while(GO_nDONE);
-
-    return ((ADRESH << 8) | ADRESL);
-}
-
-
-// MAIN
+// Gato
+unsigned char gato[8] =
+{
+    0b10001,
+    0b11011,
+    0b11111,
+    0b10101,
+    0b11111,
+    0b01110,
+    0b01010,
+    0b00000
+};
 
 void main(void)
 {
-    ADC_Init();
-
-    // RB0 como entrada
-    TRISBbits.TRISB0 = 1;
-
-    // Pull-up interna en RB0
-    OPTION_REGbits.nRBPU = 0;
-    WPUBbits.WPUB0 = 1;
-
     LCD lcd = {&PORTC,2,3,4,5,6,7};
+
+    ANSEL = 0;
+    ANSELH = 0;
+
+    TRISBbits.TRISB0 = 1;   // Bot�n
+
+    OPTION_REGbits.nRBPU = 0; // Habilita pull-ups
+    WPUBbits.WPUB0 = 1;       // Pull-up en RB0
+
     LCD_Init(lcd);
 
-    char buffer[16];
+    LCD_CreateChar(0, feliz);
+    LCD_CreateChar(1, gato);
 
-    unsigned char modo = 0;
+    unsigned char caracter = 0;
+    unsigned char estadoAnterior = 1;
+
+    LCD_Clear();
+
+    LCD_Set_Cursor(0,0);
+    LCD_putrs("Caracter:");
 
     while(1)
     {
-        unsigned int adc_result = ADC_Read();
+        LCD_Set_Cursor(1,7);
+        LCD_putc(caracter);
 
-        
-        // DETECCIÓN DE BOTÓN
-        
-        if(PORTBbits.RB0 == 0) // pulsado
+        if(estadoAnterior == 1 && PORTBbits.RB0 == 0)
         {
-            __delay_ms(30);
+            caracter++;
 
-            if(PORTBbits.RB0 == 0)
+            if(caracter > 1)
             {
-                modo++;
-
-                if(modo > 2)
-                    modo = 0;
-
-                LCD_Clear();
-
-                while(PORTBbits.RB0 == 0);
-                __delay_ms(30);
+                caracter = 0;
             }
+
+            LCD_Set_Cursor(1,7);
+            LCD_putc(caracter);
+
+            __delay_ms(200); // Anti-rebote
         }
 
-        
-        // MODO VOLTAJE
-
-        if(modo == 0)
-        {
-            LCD_Set_Cursor(0,0);
-            LCD_putrs("Voltaje:");
-
-            unsigned long mV =
-                ((unsigned long)adc_result * 5000UL) / 1023UL;
-
-            unsigned int entero = mV / 1000;
-            unsigned int decimal = mV % 1000;
-
-            sprintf(buffer,"%u.%03u V",entero,decimal);
-
-            LCD_Set_Cursor(1,0);
-            LCD_putrs("                ");
-            LCD_Set_Cursor(1,0);
-            LCD_putrs(buffer);
-        }
-
-        // MODO ADC
-      
-        else if(modo == 1)
-        {
-            LCD_Set_Cursor(0,0);
-            LCD_putrs("ADC:");
-
-            sprintf(buffer,"%u",adc_result);
-
-            LCD_Set_Cursor(1,0);
-            LCD_putrs("                ");
-            LCD_Set_Cursor(1,0);
-            LCD_putrs(buffer);
-        }
-
-       
-        // MODO PORCENTAJE
-
-        else if(modo == 2)
-        {
-            LCD_Set_Cursor(0,0);
-            LCD_putrs("Porcentaje:");
-
-            unsigned int porcentaje =
-                ((unsigned long)adc_result * 100UL) / 1023UL;
-
-            sprintf(buffer,"%u %%",porcentaje);
-
-            LCD_Set_Cursor(1,0);
-            LCD_putrs("                ");
-            LCD_Set_Cursor(1,0);
-            LCD_putrs(buffer);
-        }
-
-        __delay_ms(100);
+        estadoAnterior = PORTBbits.RB0;
     }
 }
